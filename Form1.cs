@@ -33,6 +33,7 @@ namespace tcp_group_chat
             txtNama.Font = new Font("MS Sans Serif", 8, FontStyle.Regular);
             txtNama.BackColor = Color.White;
             txtNama.BorderStyle = BorderStyle.Fixed3D;
+            txtNama.KeyPress += TxtNama_KeyPress;
             
             // Tombol Join
             btnJoin = new Button();
@@ -76,6 +77,14 @@ namespace tcp_group_chat
             
             // Tutup form login
             this.Hide();
+        }
+
+        private void TxtNama_KeyPress(object sender, KeyPressEventArgs e)
+        {
+            if (e.KeyChar == (char)Keys.Enter)
+            {
+                BtnJoin_Click(sender, e);
+            }
         }
     }
 }
