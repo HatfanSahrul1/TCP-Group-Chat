@@ -21,7 +21,7 @@ namespace tcp_group_chat
         private Panel panelChatHeader;
         private Label lblContactName;
         private Label lblContactStatus;
-        private ListBox listMessages;
+        private RichTextBox rtbMessages;
         private Panel panelMessageInput;
         private TextBox txtMessage;
         private Button btnSend;
@@ -36,21 +36,31 @@ namespace tcp_group_chat
             this.username = username;
             InitializeComponent();
             LoadSampleGroups();
+            
+            // Auto-select Programming Group
+            for (int i = 0; i < listContacts.Items.Count; i++)
+            {
+                if (listContacts.Items[i].ToString().Contains("Programming Group"))
+                {
+                    listContacts.SelectedIndex = i;
+                    break;
+                }
+            }
         }
 
         private void InitializeComponent()
         {
             this.Text = $"WhatsApp95 - {username}";
-            this.Size = new Size(900, 650);
+            this.Size = new Size(1200, 700);
             this.StartPosition = FormStartPosition.CenterScreen;
             this.FormBorderStyle = FormBorderStyle.Sizable;
             this.BackColor = Color.FromArgb(192, 192, 192);
-            this.MinimumSize = new Size(800, 600);
+            this.MinimumSize = new Size(1000, 650);
 
             // ===== CONTACTS PANEL (Kiri) =====
             panelContacts = new Panel();
             panelContacts.Dock = DockStyle.Left;
-            panelContacts.Width = 250;
+            panelContacts.Width = 220;
             panelContacts.BackColor = Color.FromArgb(192, 192, 192);
             panelContacts.BorderStyle = BorderStyle.Fixed3D;
 
@@ -59,14 +69,14 @@ namespace tcp_group_chat
             lblContacts.Text = "WhatsApp95";
             lblContacts.Font = new Font("MS Sans Serif", 8, FontStyle.Bold);
             lblContacts.Location = new Point(10, 10);
-            lblContacts.Size = new Size(230, 20);
+            lblContacts.Size = new Size(200, 20);
             lblContacts.BackColor = Color.FromArgb(192, 192, 192);
             lblContacts.ForeColor = Color.Black;
 
             // Search box
             txtSearch = new TextBox();
             txtSearch.Location = new Point(10, 35);
-            txtSearch.Size = new Size(230, 20);
+            txtSearch.Size = new Size(200, 20);
             txtSearch.Font = new Font("MS Sans Serif", 8);
             txtSearch.BackColor = Color.White;
             txtSearch.BorderStyle = BorderStyle.Fixed3D;
@@ -78,7 +88,7 @@ namespace tcp_group_chat
             // Contacts list
             listContacts = new ListBox();
             listContacts.Location = new Point(10, 65);
-            listContacts.Size = new Size(230, 450);
+            listContacts.Size = new Size(200, 450);
             listContacts.Font = new Font("MS Sans Serif", 8);
             listContacts.BackColor = Color.White;
             listContacts.BorderStyle = BorderStyle.Fixed3D;
@@ -87,7 +97,7 @@ namespace tcp_group_chat
             // New Chat button
             btnNewChat = new Button();
             btnNewChat.Location = new Point(10, 525);
-            btnNewChat.Size = new Size(230, 25);
+            btnNewChat.Size = new Size(200, 25);
             btnNewChat.Text = "New Chat";
             btnNewChat.Font = new Font("MS Sans Serif", 8);
             btnNewChat.BackColor = Color.FromArgb(192, 192, 192);
@@ -103,7 +113,7 @@ namespace tcp_group_chat
             // ===== INFO PANEL (Kanan) =====
             panelInfo = new Panel();
             panelInfo.Dock = DockStyle.Right;
-            panelInfo.Width = 200;
+            panelInfo.Width = 180;
             panelInfo.BackColor = Color.FromArgb(192, 192, 192);
             panelInfo.BorderStyle = BorderStyle.Fixed3D;
 
@@ -111,13 +121,13 @@ namespace tcp_group_chat
             lblInfoTitle.Text = "Chat Info";
             lblInfoTitle.Font = new Font("MS Sans Serif", 8, FontStyle.Bold);
             lblInfoTitle.Location = new Point(10, 10);
-            lblInfoTitle.Size = new Size(180, 20);
+            lblInfoTitle.Size = new Size(160, 20);
             lblInfoTitle.BackColor = Color.FromArgb(192, 192, 192);
             lblInfoTitle.ForeColor = Color.Black;
 
             listGroupMembers = new ListBox();
             listGroupMembers.Location = new Point(10, 35);
-            listGroupMembers.Size = new Size(180, 500);
+            listGroupMembers.Size = new Size(160, 500);
             listGroupMembers.Font = new Font("MS Sans Serif", 8);
             listGroupMembers.BackColor = Color.White;
             listGroupMembers.BorderStyle = BorderStyle.Fixed3D;
@@ -157,12 +167,15 @@ namespace tcp_group_chat
             panelChatHeader.Controls.Add(lblContactStatus);
 
             // Messages area
-            listMessages = new ListBox();
-            listMessages.Dock = DockStyle.Fill;
-            listMessages.Font = new Font("MS Sans Serif", 8);
-            listMessages.BackColor = Color.White;
-            listMessages.BorderStyle = BorderStyle.Fixed3D;
-            listMessages.Enabled = false;
+            rtbMessages = new RichTextBox();
+            rtbMessages.Dock = DockStyle.Fill;
+            rtbMessages.Font = new Font("MS Sans Serif", 8);
+            rtbMessages.BackColor = Color.White;
+            rtbMessages.BorderStyle = BorderStyle.Fixed3D;
+            rtbMessages.Enabled = false;
+            rtbMessages.ReadOnly = true;
+            rtbMessages.WordWrap = true;
+            rtbMessages.ScrollBars = RichTextBoxScrollBars.Vertical;
 
             // Message input panel
             panelMessageInput = new Panel();
@@ -170,18 +183,20 @@ namespace tcp_group_chat
             panelMessageInput.Height = 40;
             panelMessageInput.BackColor = Color.FromArgb(192, 192, 192);
             panelMessageInput.BorderStyle = BorderStyle.Fixed3D;
+            panelMessageInput.Resize += PanelMessageInput_Resize;
 
             txtMessage = new TextBox();
             txtMessage.Location = new Point(10, 10);
-            txtMessage.Size = new Size(350, 20);
+            txtMessage.Size = new Size(690, 20);
             txtMessage.Font = new Font("MS Sans Serif", 8);
             txtMessage.BackColor = Color.White;
             txtMessage.BorderStyle = BorderStyle.Fixed3D;
             txtMessage.Enabled = false;
             txtMessage.KeyPress += TxtMessage_KeyPress;
+            txtMessage.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
 
             btnSend = new Button();
-            btnSend.Location = new Point(370, 8);
+            btnSend.Location = new Point(700, 8);
             btnSend.Size = new Size(75, 23);
             btnSend.Text = "Send";
             btnSend.Font = new Font("MS Sans Serif", 8);
@@ -190,11 +205,12 @@ namespace tcp_group_chat
             btnSend.FlatStyle = FlatStyle.Standard;
             btnSend.Enabled = false;
             btnSend.Click += BtnSend_Click;
+            btnSend.Anchor = AnchorStyles.Top | AnchorStyles.Right;
 
             panelMessageInput.Controls.Add(txtMessage);
             panelMessageInput.Controls.Add(btnSend);
 
-            panelChat.Controls.Add(listMessages);
+            panelChat.Controls.Add(rtbMessages);
             panelChat.Controls.Add(panelMessageInput);
             panelChat.Controls.Add(panelChatHeader);
 
@@ -202,18 +218,17 @@ namespace tcp_group_chat
             this.Controls.Add(panelChat);
             this.Controls.Add(panelInfo);
             this.Controls.Add(panelContacts);
+            
+            // Set initial responsive layout
+            PanelMessageInput_Resize(panelMessageInput, EventArgs.Empty);
         }
 
         private void LoadSampleGroups()
         {
             // Sample contacts
-            listContacts.Items.Add("📱 John Doe");
             listContacts.Items.Add("👨‍💻 Programming Group");
-            listContacts.Items.Add("🎮 Gaming Squad");
-            listContacts.Items.Add("🎵 Music Lovers");
-            listContacts.Items.Add("🎬 Movie Club");
-            listContacts.Items.Add("💼 Work Team");
-            listContacts.Items.Add("👪 Family Group");
+            listContacts.Items.Add("📱 John Doe");
+            listContacts.Items.Add("📱 Jane Smith");
         }
 
         private void ListContacts_SelectedIndexChanged(object sender, EventArgs e)
@@ -227,7 +242,7 @@ namespace tcp_group_chat
                 // Enable chat controls
                 txtMessage.Enabled = true;
                 btnSend.Enabled = true;
-                listMessages.Enabled = true;
+                rtbMessages.Enabled = true;
                 
                 // Load messages (sample data)
                 LoadSampleMessages(selectedContact);
@@ -258,47 +273,34 @@ namespace tcp_group_chat
             listGroupMembers.Items.Add("📱 Jane Smith");
             listGroupMembers.Items.Add("📱 Mike Johnson");
             listGroupMembers.Items.Add("");
-            listGroupMembers.Items.Add("➕ Add member");
+            // listGroupMembers.Items.Add("➕ Add member");
         }
 
         private void LoadSampleMessages(string contactName)
         {
-            listMessages.Items.Clear();
+            rtbMessages.Clear();
             
             // Sample messages dengan style Win95 dan timestamp
-            listMessages.Items.Add($"=== {contactName} ===");
-            listMessages.Items.Add("");
+            rtbMessages.Text += $"=== {contactName} ===\n\n";
             
             if (contactName.Contains("Programming"))
             {
-                listMessages.Items.Add("[09:00] Admin: Welcome to Programming Group! 💻");
-                listMessages.Items.Add("[09:15] John: Anyone know C#?");
-                listMessages.Items.Add("[09:17] Jane: Yes, I'm learning it too!");
-                listMessages.Items.Add("[09:20] " + username + ": Hi everyone! 👋");
-            }
-            else if (contactName.Contains("Gaming"))
-            {
-                listMessages.Items.Add("[20:00] Admin: Gaming Squad! 🎮");
-                listMessages.Items.Add("[20:05] Player1: Who wants to play tonight?");
-                listMessages.Items.Add("[20:07] Player2: I'm in! What game?");
-                listMessages.Items.Add("[20:10] " + username + ": Count me in! 🎯");
-            }
-            else if (contactName.Contains("John Doe"))
-            {
-                listMessages.Items.Add("[08:30] John: Hey there! 👋");
-                listMessages.Items.Add("[08:32] " + username + ": Hi John! How are you?");
-                listMessages.Items.Add("[08:35] John: I'm good, thanks! You?");
-                listMessages.Items.Add("[08:37] " + username + ": All good here! 😊");
+                rtbMessages.Text += "[09:00] Admin: Welcome to Programming Group! 💻\n";
+                rtbMessages.Text += "[09:15] John: Anyone know C#?\n";
+                rtbMessages.Text += "[09:17] Jane: Yes, I'm learning it too!\n";
+                rtbMessages.Text += "[09:20] " + username + ": Hi everyone! 👋\n";
+                rtbMessages.Text += "[09:25] Mike: Has anyone worked with Entity Framework? I'm having some trouble with complex queries and would love some guidance on best practices for performance optimization.\n";
+                rtbMessages.Text += "[09:30] Sarah: @Mike I've been using EF for a few years now. What specific issues are you running into? Are you working with Code First or Database First approach?\n";
             }
             else
             {
-                listMessages.Items.Add($"Welcome to chat with {contactName}!");
-                listMessages.Items.Add("Start the conversation...");
+                rtbMessages.Text += $"Welcome to chat with {contactName}!\n";
+                rtbMessages.Text += "Start the conversation...\n";
             }
             
             // Auto-scroll ke bawah
-            if (listMessages.Items.Count > 0)
-                listMessages.TopIndex = listMessages.Items.Count - 1;
+            rtbMessages.SelectionStart = rtbMessages.Text.Length;
+            rtbMessages.ScrollToCaret();
         }
 
         private void BtnSend_Click(object sender, EventArgs e)
@@ -323,32 +325,12 @@ namespace tcp_group_chat
                 string timestamp = now.ToString("HH:mm");
                 string message = $"[{timestamp}] {username}: {txtMessage.Text}";
                 
-                listMessages.Items.Add(message);
+                rtbMessages.Text += message + "\n";
                 txtMessage.Clear();
                 
                 // Auto-scroll ke pesan terbaru
-                if (listMessages.Items.Count > 0)
-                    listMessages.TopIndex = listMessages.Items.Count - 1;
-                
-                // Simulate reply after 2 seconds (optional)
-                System.Windows.Forms.Timer replyTimer = new System.Windows.Forms.Timer();
-                replyTimer.Interval = 2000;
-                replyTimer.Tick += (s, args) =>
-                {
-                    string contactName = listContacts.SelectedItem.ToString().Replace("📱 ", "").Replace("👨‍💻 ", "").Replace("🎮 ", "").Replace("🎵 ", "").Replace("🎬 ", "").Replace("💼 ", "").Replace("👪 ", "");
-                    string replyTime = DateTime.Now.ToString("HH:mm");
-                    
-                    if (!contactName.Contains("Group") && !contactName.Contains("Squad") && !contactName.Contains("Team") && !contactName.Contains("Club") && !contactName.Contains("Family"))
-                    {
-                        listMessages.Items.Add($"[{replyTime}] {contactName}: Thanks for your message! 👍");
-                        if (listMessages.Items.Count > 0)
-                            listMessages.TopIndex = listMessages.Items.Count - 1;
-                    }
-                    
-                    replyTimer.Stop();
-                    replyTimer.Dispose();
-                };
-                replyTimer.Start();
+                rtbMessages.SelectionStart = rtbMessages.Text.Length;
+                rtbMessages.ScrollToCaret();
             }
         }
 
@@ -433,6 +415,24 @@ namespace tcp_group_chat
             {
                 txtSearch.Text = "Search or start new chat";
                 txtSearch.ForeColor = Color.Gray;
+            }
+        }
+
+        private void PanelMessageInput_Resize(object sender, EventArgs e)
+        {
+            if (panelMessageInput != null && txtMessage != null && btnSend != null)
+            {
+                // Margin dan spacing
+                int leftMargin = 10;
+                int spacing = 5;
+                int rightMargin = 10;
+                
+                // Hitung lebar TextBox yang responsif
+                int availableWidth = panelMessageInput.Width - leftMargin - btnSend.Width - spacing - rightMargin;
+                txtMessage.Width = Math.Max(100, availableWidth); // Minimal width 100px
+                
+                // Posisi tombol Send di sebelah kanan TextBox
+                btnSend.Left = txtMessage.Right + spacing;
             }
         }
 
