@@ -2,12 +2,15 @@ using System;
 using System.Drawing;
 using System.Windows.Forms;
 using System.Collections.Generic;
+using System.Linq;
 
 namespace tcp_group_chat
 {
     public class ChatForm : Form
     {
         private string username;
+        private NetworkClient networkClient;
+        private List<string> groupMembers = new List<string>();
         
         // Controls untuk contacts panel (kiri)
         private Panel panelContacts;
@@ -35,17 +38,18 @@ namespace tcp_group_chat
         {
             this.username = username;
             InitializeComponent();
-            LoadSampleGroups();
             
-            // Auto-select Programming Group
-            for (int i = 0; i < listContacts.Items.Count; i++)
-            {
-                if (listContacts.Items[i].ToString().Contains("Programming Group"))
-                {
-                    listContacts.SelectedIndex = i;
-                    break;
-                }
-            }
+            // Initialize network client
+            networkClient = new NetworkClient();
+            networkClient.MessageReceived += OnMessageReceived;
+            networkClient.ConnectionStateChanged += OnConnectionStateChanged;
+            networkClient.ErrorOccurred += OnErrorOccurred;
+            
+            // Auto-select group chat after networkClient is initialized
+            listContacts.SelectedIndex = 0;
+            
+            // Connect to server
+            ConnectToServer();
         }
 
         private void InitializeComponent()
@@ -85,7 +89,7 @@ namespace tcp_group_chat
             txtSearch.Enter += TxtSearch_Enter;
             txtSearch.Leave += TxtSearch_Leave;
 
-            // Contacts list
+            // Contacts list - Show only Group Chat
             listContacts = new ListBox();
             listContacts.Location = new Point(10, 65);
             listContacts.Size = new Size(200, 450);
@@ -93,17 +97,19 @@ namespace tcp_group_chat
             listContacts.BackColor = Color.White;
             listContacts.BorderStyle = BorderStyle.Fixed3D;
             listContacts.SelectedIndexChanged += ListContacts_SelectedIndexChanged;
+            listContacts.Items.Add("👨‍💻 Group Chat");
+            // Auto-select will be done after networkClient is initialized
 
-            // New Chat button
+            // New Chat button (disabled for group chat only)
             btnNewChat = new Button();
             btnNewChat.Location = new Point(10, 525);
             btnNewChat.Size = new Size(200, 25);
-            btnNewChat.Text = "New Chat";
+            btnNewChat.Text = "Group Chat Only";
             btnNewChat.Font = new Font("MS Sans Serif", 8);
             btnNewChat.BackColor = Color.FromArgb(192, 192, 192);
             btnNewChat.ForeColor = Color.Black;
             btnNewChat.FlatStyle = FlatStyle.Standard;
-            btnNewChat.Click += BtnNewChat_Click;
+            btnNewChat.Enabled = false;
 
             panelContacts.Controls.Add(lblContacts);
             panelContacts.Controls.Add(txtSearch);
@@ -148,7 +154,7 @@ namespace tcp_group_chat
             panelChatHeader.BorderStyle = BorderStyle.Fixed3D;
 
             lblContactName = new Label();
-            lblContactName.Text = "Select a chat";
+            lblContactName.Text = "Group Chat";
             lblContactName.Font = new Font("MS Sans Serif", 8, FontStyle.Bold);
             lblContactName.Location = new Point(10, 10);
             lblContactName.Size = new Size(300, 20);
@@ -156,7 +162,7 @@ namespace tcp_group_chat
             lblContactName.ForeColor = Color.White;
 
             lblContactStatus = new Label();
-            lblContactStatus.Text = "Click on a contact to start messaging";
+            lblContactStatus.Text = "Connecting to server...";
             lblContactStatus.Font = new Font("MS Sans Serif", 8);
             lblContactStatus.Location = new Point(10, 30);
             lblContactStatus.Size = new Size(300, 15);
@@ -223,82 +229,162 @@ namespace tcp_group_chat
             PanelMessageInput_Resize(panelMessageInput, EventArgs.Empty);
         }
 
-        private void LoadSampleGroups()
-        {
-            // Sample contacts
-            listContacts.Items.Add("👨‍💻 Programming Group");
-            listContacts.Items.Add("📱 John Doe");
-            listContacts.Items.Add("📱 Jane Smith");
-        }
-
         private void ListContacts_SelectedIndexChanged(object sender, EventArgs e)
         {
-            if (listContacts.SelectedItem != null)
+            if (listContacts.SelectedItem != null && networkClient != null && networkClient.IsConnected)
             {
-                string selectedContact = listContacts.SelectedItem.ToString();
-                lblContactName.Text = selectedContact;
-                lblContactStatus.Text = "online";
-                
-                // Enable chat controls
+                // Enable chat controls when connected
                 txtMessage.Enabled = true;
                 btnSend.Enabled = true;
                 rtbMessages.Enabled = true;
                 
-                // Load messages (sample data)
-                LoadSampleMessages(selectedContact);
+                lblContactName.Text = "Group Chat";
+                lblContactStatus.Text = $"{groupMembers.Count} members online";
                 
-                // Load group members if it's a group
-                if (selectedContact.Contains("Group") || selectedContact.Contains("Squad") || selectedContact.Contains("Team") || selectedContact.Contains("Club") || selectedContact.Contains("Family"))
+                // Update group members display
+                UpdateGroupMembersList();
+            }
+        }
+
+        private void UpdateGroupMembersList()
+        {
+            listGroupMembers.Items.Clear();
+            listGroupMembers.Items.Add("👥 Group Chat Members");
+            listGroupMembers.Items.Add("");
+            
+            foreach (string member in groupMembers.OrderBy(m => m))
+            {
+                if (member == username)
                 {
-                    LoadGroupMembers(selectedContact);
+                    listGroupMembers.Items.Add($"📱 {member} (You)");
                 }
                 else
                 {
-                    listGroupMembers.Items.Clear();
-                    listGroupMembers.Items.Add("📞 Call");
-                    listGroupMembers.Items.Add("📹 Video call");
-                    listGroupMembers.Items.Add("🔍 Search");
+                    listGroupMembers.Items.Add($"📱 {member}");
                 }
             }
         }
 
-        private void LoadGroupMembers(string groupName)
+        private async void ConnectToServer()
         {
-            listGroupMembers.Items.Clear();
-            listGroupMembers.Items.Add($"👥 {groupName}");
-            listGroupMembers.Items.Add("");
-            listGroupMembers.Items.Add("Members:");
-            listGroupMembers.Items.Add($"📱 {username} (You)");
-            listGroupMembers.Items.Add("📱 John Doe");
-            listGroupMembers.Items.Add("📱 Jane Smith");
-            listGroupMembers.Items.Add("📱 Mike Johnson");
-            listGroupMembers.Items.Add("");
-            // listGroupMembers.Items.Add("➕ Add member");
+            try
+            {
+                bool connected = await networkClient.ConnectAsync("127.0.0.1", 8888, username);
+                if (!connected)
+                {
+                    MessageBox.Show("Failed to connect to server. Please make sure the server is running.", 
+                                    "Connection Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                }
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Connection error: {ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
         }
 
-        private void LoadSampleMessages(string contactName)
+        private void OnMessageReceived(object sender, ChatMessage message)
         {
-            rtbMessages.Clear();
-            
-            // Sample messages dengan style Win95 dan timestamp
-            rtbMessages.Text += $"=== {contactName} ===\n\n";
-            
-            if (contactName.Contains("Programming"))
+            if (InvokeRequired)
             {
-                rtbMessages.Text += "[09:00] Admin: Welcome to Programming Group! 💻\n";
-                rtbMessages.Text += "[09:15] John: Anyone know C#?\n";
-                rtbMessages.Text += "[09:17] Jane: Yes, I'm learning it too!\n";
-                rtbMessages.Text += "[09:20] " + username + ": Hi everyone! 👋\n";
-                rtbMessages.Text += "[09:25] Mike: Has anyone worked with Entity Framework? I'm having some trouble with complex queries and would love some guidance on best practices for performance optimization.\n";
-                rtbMessages.Text += "[09:30] Sarah: @Mike I've been using EF for a few years now. What specific issues are you running into? Are you working with Code First or Database First approach?\n";
+                Invoke(new Action(() => OnMessageReceived(sender, message)));
+                return;
             }
-            else
-            {
-                rtbMessages.Text += $"Welcome to chat with {contactName}!\n";
-                rtbMessages.Text += "Start the conversation...\n";
-            }
+
+            DateTime messageTime = DateTimeOffset.FromUnixTimeSeconds(message.Ts).DateTime;
             
-            // Auto-scroll ke bawah
+            switch (message.Type)
+            {
+                case "msg":
+                    AppendMessage(message.From, message.Text, messageTime, Color.Black);
+                    break;
+                
+                case "pm":
+                    if (message.To == username)
+                    {
+                        AppendMessage($"{message.From} (private)", message.Text, messageTime, Color.Blue);
+                    }
+                    else if (message.From == username)
+                    {
+                        AppendMessage($"You to {message.To} (private)", message.Text, messageTime, Color.Blue);
+                    }
+                    break;
+                
+                case "join":
+                    AppendMessage("System", message.Text, messageTime, Color.Green);
+                    if (!groupMembers.Contains(message.From))
+                    {
+                        groupMembers.Add(message.From);
+                        UpdateGroupMembersList();
+                    }
+                    break;
+                
+                case "leave":
+                    AppendMessage("System", message.Text, messageTime, Color.Orange);
+                    groupMembers.Remove(message.From);
+                    UpdateGroupMembersList();
+                    break;
+                
+                case "sys":
+                    AppendMessage("Server", message.Text, messageTime, Color.Red);
+                    break;
+            }
+        }
+
+        private void OnConnectionStateChanged(object sender, string state)
+        {
+            if (InvokeRequired)
+            {
+                Invoke(new Action(() => OnConnectionStateChanged(sender, state)));
+                return;
+            }
+
+            lblContactStatus.Text = state;
+            
+            if (state == "Connected")
+            {
+                txtMessage.Enabled = true;
+                btnSend.Enabled = true;
+                rtbMessages.Enabled = true;
+                
+                // Add self to group members
+                if (!groupMembers.Contains(username))
+                {
+                    groupMembers.Add(username);
+                    UpdateGroupMembersList();
+                }
+            }
+            else if (state == "Disconnected")
+            {
+                txtMessage.Enabled = false;
+                btnSend.Enabled = false;
+                groupMembers.Clear();
+                UpdateGroupMembersList();
+            }
+        }
+
+        private void OnErrorOccurred(object sender, string error)
+        {
+            if (InvokeRequired)
+            {
+                Invoke(new Action(() => OnErrorOccurred(sender, error)));
+                return;
+            }
+
+            AppendMessage("Error", error, DateTime.Now, Color.Red);
+        }
+
+        private void AppendMessage(string sender, string message, DateTime timestamp, Color color)
+        {
+            string timeString = timestamp.ToString("HH:mm:ss");
+            string formattedMessage = $"[{timeString}] {sender}: {message}\n";
+            
+            rtbMessages.SelectionStart = rtbMessages.TextLength;
+            rtbMessages.SelectionLength = 0;
+            rtbMessages.SelectionColor = color;
+            rtbMessages.AppendText(formattedMessage);
+            rtbMessages.SelectionColor = rtbMessages.ForeColor;
+            
+            // Auto-scroll to latest message
             rtbMessages.SelectionStart = rtbMessages.Text.Length;
             rtbMessages.ScrollToCaret();
         }
@@ -317,20 +403,35 @@ namespace tcp_group_chat
             }
         }
 
-        private void SendMessage()
+        private async void SendMessage()
         {
-            if (!string.IsNullOrWhiteSpace(txtMessage.Text) && listContacts.SelectedItem != null)
+            if (!string.IsNullOrWhiteSpace(txtMessage.Text) && networkClient.IsConnected)
             {
-                DateTime now = DateTime.Now;
-                string timestamp = now.ToString("HH:mm");
-                string message = $"[{timestamp}] {username}: {txtMessage.Text}";
+                string message = txtMessage.Text.Trim();
                 
-                rtbMessages.Text += message + "\n";
+                // Check if it's a private message command
+                if (message.StartsWith("/w "))
+                {
+                    // Private message format: /w username message
+                    string[] parts = message.Substring(3).Split(' ', 2);
+                    if (parts.Length >= 2)
+                    {
+                        string targetUser = parts[0];
+                        string privateMessage = parts[1];
+                        await networkClient.SendPrivateMessageAsync(targetUser, privateMessage);
+                    }
+                    else
+                    {
+                        AppendMessage("System", "Usage: /w username message", DateTime.Now, Color.Red);
+                    }
+                }
+                else
+                {
+                    // Send group message
+                    await networkClient.SendGroupMessageAsync(message);
+                }
+                
                 txtMessage.Clear();
-                
-                // Auto-scroll ke pesan terbaru
-                rtbMessages.SelectionStart = rtbMessages.Text.Length;
-                rtbMessages.ScrollToCaret();
             }
         }
 
@@ -437,8 +538,13 @@ namespace tcp_group_chat
         }
 
         // Handle form closing
-        protected override void OnFormClosing(FormClosingEventArgs e)
+        protected override async void OnFormClosing(FormClosingEventArgs e)
         {
+            if (networkClient != null && networkClient.IsConnected)
+            {
+                await networkClient.DisconnectAsync();
+            }
+            
             base.OnFormClosing(e);
             Application.Exit();
         }
