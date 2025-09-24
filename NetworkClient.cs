@@ -16,13 +16,15 @@ namespace tcp_group_chat
         public long Ts { get; set; }             // timestamp
     }
 
-    public class NetworkClient
+    public class NetworkClient : IDisposable
     {
         private TcpClient _client;
         private NetworkStream _stream;
         private string _username;
         private bool _isConnected = false;
         private CancellationTokenSource _cancellationTokenSource;
+        private readonly SemaphoreSlim _sendLock = new SemaphoreSlim(1, 1);
+        private bool _disposed = false;
 
         // Events untuk komunikasi dengan UI
         public event EventHandler<ChatMessage> MessageReceived;
@@ -39,16 +41,30 @@ namespace tcp_group_chat
                 _client = new TcpClient();
                 _cancellationTokenSource = new CancellationTokenSource();
 
-                await _client.ConnectAsync(serverAddress, port);
-                _stream = _client.GetStream();
-                _isConnected = true;
+                // Set timeout untuk connection
+                _client.ReceiveTimeout = 30000; // 30 seconds
+                _client.SendTimeout = 10000;    // 10 seconds
 
                 ConnectionStateChanged?.Invoke(this, "Connecting...");
 
-                // Mulai listening untuk pesan dari server
-                _ = Task.Run(() => ListenForMessages(_cancellationTokenSource.Token));
+                // Connect with timeout
+                var connectTask = _client.ConnectAsync(serverAddress, port);
+                var timeoutTask = Task.Delay(10000); // 10 second timeout
+                
+                var completedTask = await Task.WhenAny(connectTask, timeoutTask);
+                if (completedTask == timeoutTask)
+                {
+                    throw new TimeoutException("Connection timeout");
+                }
 
-                // Kirim join message
+                _stream = _client.GetStream();
+                _isConnected = true;
+
+                // Start listening in background thread (don't await)
+                _ = Task.Run(async () => await ListenForMessages(_cancellationTokenSource.Token))
+                    .ConfigureAwait(false);
+
+                // Send join message
                 var joinMessage = new ChatMessage
                 {
                     Type = "join",
@@ -71,11 +87,13 @@ namespace tcp_group_chat
 
         public async Task DisconnectAsync()
         {
+            if (_disposed) return;
+            
             try
             {
-                if (_isConnected)
+                if (_isConnected && _client?.Connected == true)
                 {
-                    // Kirim leave message
+                    // Send leave message with timeout
                     var leaveMessage = new ChatMessage
                     {
                         Type = "leave",
@@ -84,7 +102,15 @@ namespace tcp_group_chat
                         Ts = GetTimestamp()
                     };
 
-                    await SendMessageAsync(leaveMessage);
+                    var cts = new CancellationTokenSource(5000); // 5 second timeout
+                    try
+                    {
+                        await SendMessageAsync(leaveMessage, cts.Token);
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        // Timeout - continue with disconnect
+                    }
                 }
             }
             catch (Exception ex)
@@ -95,8 +121,14 @@ namespace tcp_group_chat
             {
                 _isConnected = false;
                 _cancellationTokenSource?.Cancel();
-                _stream?.Close();
-                _client?.Close();
+                
+                try
+                {
+                    _stream?.Close();
+                    _client?.Close();
+                }
+                catch { }
+                
                 ConnectionStateChanged?.Invoke(this, "Disconnected");
             }
         }
@@ -132,40 +164,55 @@ namespace tcp_group_chat
             await SendMessageAsync(chatMessage);
         }
 
-        private async Task SendMessageAsync(ChatMessage message)
+        private async Task SendMessageAsync(ChatMessage message, CancellationToken cancellationToken = default)
         {
+            if (!_isConnected || _stream == null || _disposed) return;
+
+            await _sendLock.WaitAsync(cancellationToken);
             try
             {
-                if (!_isConnected || _stream == null) return;
-
                 string json = JsonSerializer.Serialize(message);
                 byte[] messageBytes = Encoding.UTF8.GetBytes(json);
                 byte[] lengthBytes = BitConverter.GetBytes(messageBytes.Length);
                 
-                // Send length first, then message
-                await _stream.WriteAsync(lengthBytes, 0, lengthBytes.Length);
-                await _stream.WriteAsync(messageBytes, 0, messageBytes.Length);
+                // Send length first, then message with timeout
+                await _stream.WriteAsync(lengthBytes, 0, lengthBytes.Length, cancellationToken);
+                await _stream.WriteAsync(messageBytes, 0, messageBytes.Length, cancellationToken);
+                await _stream.FlushAsync(cancellationToken);
             }
-            catch (Exception ex)
+            catch (Exception ex) when (!(ex is OperationCanceledException))
             {
                 ErrorOccurred?.Invoke(this, $"Error sending message: {ex.Message}");
             }
+            finally
+            {
+                _sendLock.Release();
+            }
         }
 
-        private async Task<ChatMessage> ReceiveMessageAsync()
+        private async Task<ChatMessage> ReceiveMessageAsync(CancellationToken cancellationToken = default)
         {
             try
             {
-                if (!_isConnected || _stream == null) return null;
+                if (!_isConnected || _stream == null || _disposed) return null;
 
-                // Read message length first (4 bytes)
+                // Read message length first (4 bytes) with timeout
                 byte[] lengthBytes = new byte[4];
                 int bytesRead = 0;
-                while (bytesRead < 4)
+                while (bytesRead < 4 && !cancellationToken.IsCancellationRequested)
                 {
-                    int read = await _stream.ReadAsync(lengthBytes, bytesRead, 4 - bytesRead);
-                    if (read == 0) return null; // Connection closed
-                    bytesRead += read;
+                    try
+                    {
+                        int read = await _stream.ReadAsync(lengthBytes, bytesRead, 4 - bytesRead, cancellationToken);
+                        if (read == 0) return null; // Connection closed
+                        bytesRead += read;
+                    }
+                    catch (Exception ex) when (ex is System.IO.IOException || ex is SocketException)
+                    {
+                        // Connection lost
+                        _isConnected = false;
+                        return null;
+                    }
                 }
 
                 int messageLength = BitConverter.ToInt32(lengthBytes, 0);
@@ -175,20 +222,29 @@ namespace tcp_group_chat
                     return null;
                 }
 
-                // Read the actual message
+                // Read the actual message with timeout
                 byte[] messageBytes = new byte[messageLength];
                 bytesRead = 0;
-                while (bytesRead < messageLength)
+                while (bytesRead < messageLength && !cancellationToken.IsCancellationRequested)
                 {
-                    int read = await _stream.ReadAsync(messageBytes, bytesRead, messageLength - bytesRead);
-                    if (read == 0) return null; // Connection closed
-                    bytesRead += read;
+                    try
+                    {
+                        int read = await _stream.ReadAsync(messageBytes, bytesRead, messageLength - bytesRead, cancellationToken);
+                        if (read == 0) return null; // Connection closed
+                        bytesRead += read;
+                    }
+                    catch (Exception ex) when (ex is System.IO.IOException || ex is SocketException)
+                    {
+                        // Connection lost
+                        _isConnected = false;
+                        return null;
+                    }
                 }
 
                 string jsonData = Encoding.UTF8.GetString(messageBytes);
                 return JsonSerializer.Deserialize<ChatMessage>(jsonData);
             }
-            catch (Exception ex)
+            catch (Exception ex) when (!(ex is OperationCanceledException))
             {
                 ErrorOccurred?.Invoke(this, $"Error receiving message: {ex.Message}");
                 return null;
@@ -199,29 +255,44 @@ namespace tcp_group_chat
         {
             try
             {
-                while (_isConnected && !cancellationToken.IsCancellationRequested)
+                while (_isConnected && !cancellationToken.IsCancellationRequested && !_disposed)
                 {
-                    var message = await ReceiveMessageAsync();
+                    var message = await ReceiveMessageAsync(cancellationToken);
                     if (message == null)
                     {
-                        // Connection closed or error
+                        // Connection closed or error - exit gracefully
+                        _isConnected = false;
                         break;
                     }
 
-                    // Invoke pada UI thread
-                    MessageReceived?.Invoke(this, message);
+                    // Post to UI thread without blocking
+                    _ = Task.Run(() => MessageReceived?.Invoke(this, message));
+                    
+                    // Small delay to prevent CPU spinning
+                    await Task.Delay(10, cancellationToken);
                 }
             }
-            catch (Exception ex) when (!(ex is OperationCanceledException))
+            catch (OperationCanceledException)
             {
-                ErrorOccurred?.Invoke(this, $"Connection lost: {ex.Message}");
+                // Expected when cancelling - don't report as error
+            }
+            catch (Exception ex) when (ex is System.IO.IOException || ex is SocketException)
+            {
+                // Network connection lost - handle gracefully
+                _isConnected = false;
+            }
+            catch (Exception ex)
+            {
+                // Unexpected error
+                _isConnected = false;
+                ErrorOccurred?.Invoke(this, $"Unexpected error: {ex.Message}");
             }
             finally
             {
-                if (_isConnected)
+                if (!_disposed)
                 {
                     _isConnected = false;
-                    ConnectionStateChanged?.Invoke(this, "Disconnected");
+                    _ = Task.Run(() => ConnectionStateChanged?.Invoke(this, "Disconnected"));
                 }
             }
         }
@@ -233,7 +304,21 @@ namespace tcp_group_chat
 
         public void Dispose()
         {
-            _ = Task.Run(async () => await DisconnectAsync());
+            if (_disposed) return;
+            _disposed = true;
+            
+            _ = Task.Run(async () => 
+            {
+                try
+                {
+                    await DisconnectAsync();
+                }
+                finally
+                {
+                    _sendLock?.Dispose();
+                    _cancellationTokenSource?.Dispose();
+                }
+            });
         }
     }
 }

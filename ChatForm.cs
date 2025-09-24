@@ -49,7 +49,7 @@ namespace tcp_group_chat
             listContacts.SelectedIndex = 0;
             
             // Connect to server
-            ConnectToServer();
+            _ = Task.Run(async () => await ConnectToServer());
         }
 
         private void InitializeComponent()
@@ -246,50 +246,99 @@ namespace tcp_group_chat
             }
         }
 
-        private void UpdateGroupMembersList()
+        // Async version to prevent UI blocking
+        private async void UpdateGroupMembersListAsync()
         {
-            listGroupMembers.Items.Clear();
-            listGroupMembers.Items.Add("👥 Group Chat Members");
-            listGroupMembers.Items.Add("");
-            
-            foreach (string member in groupMembers.OrderBy(m => m))
+            await Task.Run(() =>
             {
-                if (member == username)
+                if (InvokeRequired)
                 {
-                    listGroupMembers.Items.Add($"📱 {member} (You)");
+                    BeginInvoke(new Action(UpdateGroupMembersList));
                 }
                 else
                 {
-                    listGroupMembers.Items.Add($"📱 {member}");
+                    UpdateGroupMembersList();
                 }
-            }
+            });
         }
 
-        private async void ConnectToServer()
+        private void UpdateGroupMembersList()
         {
             try
             {
+                listGroupMembers.BeginUpdate(); // Prevent flickering
+                listGroupMembers.Items.Clear();
+                listGroupMembers.Items.Add("👥 Group Chat Members");
+                listGroupMembers.Items.Add("");
+                
+                var sortedMembers = groupMembers.OrderBy(m => m).ToList();
+                foreach (string member in sortedMembers)
+                {
+                    if (member == username)
+                    {
+                        listGroupMembers.Items.Add($"📱 {member} (You)");
+                    }
+                    else
+                    {
+                        listGroupMembers.Items.Add($"📱 {member}");
+                    }
+                }
+            }
+            finally
+            {
+                listGroupMembers.EndUpdate(); // Re-enable drawing
+            }
+        }
+
+        private async Task ConnectToServer()
+        {
+            try
+            {
+                // Dispose old client if exists
+                if (networkClient != null)
+                {
+                    networkClient.MessageReceived -= OnMessageReceived;
+                    networkClient.ConnectionStateChanged -= OnConnectionStateChanged;
+                    networkClient.ErrorOccurred -= OnErrorOccurred;
+                    networkClient.Dispose();
+                }
+                
+                // Create new client
+                networkClient = new NetworkClient();
+                networkClient.MessageReceived += OnMessageReceived;
+                networkClient.ConnectionStateChanged += OnConnectionStateChanged;
+                networkClient.ErrorOccurred += OnErrorOccurred;
+                
                 bool connected = await networkClient.ConnectAsync("127.0.0.1", 8888, username);
                 if (!connected)
                 {
-                    MessageBox.Show("Failed to connect to server. Please make sure the server is running.", 
-                                    "Connection Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    AppendMessage("System", "Failed to connect to server. Will retry automatically...", DateTime.Now, Color.Red);
+                }
+                else
+                {
+                    AppendMessage("System", "Connected to server successfully!", DateTime.Now, Color.Green);
                 }
             }
             catch (Exception ex)
             {
-                MessageBox.Show($"Connection error: {ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                AppendMessage("System", $"Connection error: {ex.Message}", DateTime.Now, Color.Red);
             }
         }
 
         private void OnMessageReceived(object sender, ChatMessage message)
         {
+            // Use BeginInvoke for better performance instead of Invoke
             if (InvokeRequired)
             {
-                Invoke(new Action(() => OnMessageReceived(sender, message)));
+                BeginInvoke(new Action(() => ProcessReceivedMessage(message)));
                 return;
             }
+            
+            ProcessReceivedMessage(message);
+        }
 
+        private void ProcessReceivedMessage(ChatMessage message)
+        {
             DateTime messageTime = DateTimeOffset.FromUnixTimeSeconds(message.Ts).DateTime;
             
             switch (message.Type)
@@ -314,14 +363,14 @@ namespace tcp_group_chat
                     if (!groupMembers.Contains(message.From))
                     {
                         groupMembers.Add(message.From);
-                        UpdateGroupMembersList();
+                        UpdateGroupMembersListAsync();
                     }
                     break;
                 
                 case "leave":
                     AppendMessage("System", message.Text, messageTime, Color.Orange);
                     groupMembers.Remove(message.From);
-                    UpdateGroupMembersList();
+                    UpdateGroupMembersListAsync();
                     break;
                 
                 case "sys":
@@ -334,10 +383,15 @@ namespace tcp_group_chat
         {
             if (InvokeRequired)
             {
-                Invoke(new Action(() => OnConnectionStateChanged(sender, state)));
+                BeginInvoke(new Action(() => ProcessConnectionStateChange(state)));
                 return;
             }
 
+            ProcessConnectionStateChange(state);
+        }
+
+        private void ProcessConnectionStateChange(string state)
+        {
             lblContactStatus.Text = state;
             
             if (state == "Connected")
@@ -350,7 +404,7 @@ namespace tcp_group_chat
                 if (!groupMembers.Contains(username))
                 {
                     groupMembers.Add(username);
-                    UpdateGroupMembersList();
+                    UpdateGroupMembersListAsync();
                 }
             }
             else if (state == "Disconnected")
@@ -358,7 +412,21 @@ namespace tcp_group_chat
                 txtMessage.Enabled = false;
                 btnSend.Enabled = false;
                 groupMembers.Clear();
-                UpdateGroupMembersList();
+                UpdateGroupMembersListAsync();
+                
+                // Try to reconnect after a short delay
+                _ = Task.Run(async () =>
+                {
+                    await Task.Delay(3000); // Wait 3 seconds before reconnecting
+                    if (!networkClient?.IsConnected == true && !this.IsDisposed)
+                    {
+                        BeginInvoke(new Action(async () =>
+                        {
+                            AppendMessage("System", "Attempting to reconnect...", DateTime.Now, Color.Orange);
+                            await ConnectToServer();
+                        }));
+                    }
+                });
             }
         }
 
@@ -366,7 +434,7 @@ namespace tcp_group_chat
         {
             if (InvokeRequired)
             {
-                Invoke(new Action(() => OnErrorOccurred(sender, error)));
+                BeginInvoke(new Action(() => AppendMessage("Error", error, DateTime.Now, Color.Red)));
                 return;
             }
 
@@ -375,8 +443,23 @@ namespace tcp_group_chat
 
         private void AppendMessage(string sender, string message, DateTime timestamp, Color color)
         {
+            if (InvokeRequired)
+            {
+                BeginInvoke(new Action(() => AppendMessage(sender, message, timestamp, color)));
+                return;
+            }
+
             string timeString = timestamp.ToString("HH:mm:ss");
             string formattedMessage = $"[{timeString}] {sender}: {message}\n";
+            
+            // Prevent excessive message history to avoid performance issues
+            if (rtbMessages.Lines.Length > 1000)
+            {
+                // Remove first 200 lines to keep history manageable
+                var lines = rtbMessages.Lines;
+                var newLines = lines.Skip(200).ToArray();
+                rtbMessages.Lines = newLines;
+            }
             
             rtbMessages.SelectionStart = rtbMessages.TextLength;
             rtbMessages.SelectionLength = 0;
@@ -405,33 +488,54 @@ namespace tcp_group_chat
 
         private async void SendMessage()
         {
-            if (!string.IsNullOrWhiteSpace(txtMessage.Text) && networkClient.IsConnected)
+            if (!string.IsNullOrWhiteSpace(txtMessage.Text) && networkClient?.IsConnected == true)
             {
                 string message = txtMessage.Text.Trim();
+                txtMessage.Clear(); // Clear immediately to prevent double-send
                 
-                // Check if it's a private message command
-                if (message.StartsWith("/w "))
+                // Disable send button temporarily to prevent spam
+                btnSend.Enabled = false;
+                
+                try
                 {
-                    // Private message format: /w username message
-                    string[] parts = message.Substring(3).Split(' ', 2);
-                    if (parts.Length >= 2)
+                    // Check if it's a private message command
+                    if (message.StartsWith("/w "))
                     {
-                        string targetUser = parts[0];
-                        string privateMessage = parts[1];
-                        await networkClient.SendPrivateMessageAsync(targetUser, privateMessage);
+                        // Private message format: /w username message
+                        string[] parts = message.Substring(3).Split(' ', 2);
+                        if (parts.Length >= 2)
+                        {
+                            string targetUser = parts[0];
+                            string privateMessage = parts[1];
+                            await networkClient.SendPrivateMessageAsync(targetUser, privateMessage);
+                        }
+                        else
+                        {
+                            AppendMessage("System", "Usage: /w username message", DateTime.Now, Color.Red);
+                        }
                     }
                     else
                     {
-                        AppendMessage("System", "Usage: /w username message", DateTime.Now, Color.Red);
+                        // Send group message
+                        await networkClient.SendGroupMessageAsync(message);
                     }
                 }
-                else
+                catch (Exception ex)
                 {
-                    // Send group message
-                    await networkClient.SendGroupMessageAsync(message);
+                    AppendMessage("Error", $"Failed to send message: {ex.Message}", DateTime.Now, Color.Red);
                 }
-                
-                txtMessage.Clear();
+                finally
+                {
+                    // Re-enable send button
+                    if (InvokeRequired)
+                    {
+                        BeginInvoke(new Action(() => btnSend.Enabled = true));
+                    }
+                    else
+                    {
+                        btnSend.Enabled = true;
+                    }
+                }
             }
         }
 
@@ -540,13 +644,32 @@ namespace tcp_group_chat
         // Handle form closing
         protected override async void OnFormClosing(FormClosingEventArgs e)
         {
-            if (networkClient != null && networkClient.IsConnected)
+            try
             {
-                await networkClient.DisconnectAsync();
+                if (networkClient != null && networkClient.IsConnected)
+                {
+                    await networkClient.DisconnectAsync();
+                    networkClient.Dispose();
+                }
+            }
+            catch (Exception ex)
+            {
+                // Log error but don't prevent closing
+                System.Diagnostics.Debug.WriteLine($"Error during cleanup: {ex.Message}");
             }
             
             base.OnFormClosing(e);
             Application.Exit();
+        }
+
+        // Add IDisposable pattern
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing)
+            {
+                networkClient?.Dispose();
+            }
+            base.Dispose(disposing);
         }
     }
 }
