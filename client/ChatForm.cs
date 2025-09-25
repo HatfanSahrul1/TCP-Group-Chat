@@ -9,6 +9,8 @@ namespace tcp_group_chat
     public class ChatForm : Form
     {
         private string username;
+        private string serverIP;
+        private int serverPort;
         private NetworkClient networkClient;
         private List<string> groupMembers = new List<string>();
         
@@ -18,6 +20,7 @@ namespace tcp_group_chat
         private ListBox listContacts;
         private TextBox txtSearch;
         private Button btnNewChat;
+        private Button btnDisconnect;
         
         // Controls untuk chat area (tengah)
         private Panel panelChat;
@@ -34,9 +37,11 @@ namespace tcp_group_chat
         private Label lblInfoTitle;
         private ListBox listGroupMembers;
 
-        public ChatForm(string username)
+        public ChatForm(string username, string serverIP = "127.0.0.1", int serverPort = 8888)
         {
             this.username = username;
+            this.serverIP = serverIP;
+            this.serverPort = serverPort;
             InitializeComponent();
             
             // Initialize network client
@@ -103,7 +108,7 @@ namespace tcp_group_chat
             // New Chat button (disabled for group chat only)
             btnNewChat = new Button();
             btnNewChat.Location = new Point(10, 525);
-            btnNewChat.Size = new Size(200, 25);
+            btnNewChat.Size = new Size(95, 25);
             btnNewChat.Text = "Group Chat Only";
             btnNewChat.Font = new Font("MS Sans Serif", 8);
             btnNewChat.BackColor = Color.FromArgb(192, 192, 192);
@@ -111,10 +116,22 @@ namespace tcp_group_chat
             btnNewChat.FlatStyle = FlatStyle.Standard;
             btnNewChat.Enabled = false;
 
+            // Disconnect button
+            btnDisconnect = new Button();
+            btnDisconnect.Location = new Point(115, 525);
+            btnDisconnect.Size = new Size(95, 25);
+            btnDisconnect.Text = "Disconnect";
+            btnDisconnect.Font = new Font("MS Sans Serif", 8);
+            btnDisconnect.BackColor = Color.FromArgb(192, 192, 192);
+            btnDisconnect.ForeColor = Color.Black;
+            btnDisconnect.FlatStyle = FlatStyle.Standard;
+            btnDisconnect.Click += BtnDisconnect_Click;
+
             panelContacts.Controls.Add(lblContacts);
             panelContacts.Controls.Add(txtSearch);
             panelContacts.Controls.Add(listContacts);
             panelContacts.Controls.Add(btnNewChat);
+            panelContacts.Controls.Add(btnDisconnect);
 
             // ===== INFO PANEL (Kanan) =====
             panelInfo = new Panel();
@@ -309,14 +326,14 @@ namespace tcp_group_chat
                 networkClient.ConnectionStateChanged += OnConnectionStateChanged;
                 networkClient.ErrorOccurred += OnErrorOccurred;
                 
-                bool connected = await networkClient.ConnectAsync("127.0.0.1", 8888, username);
+                bool connected = await networkClient.ConnectAsync(serverIP, serverPort, username);
                 if (!connected)
                 {
-                    AppendMessage("System", "Failed to connect to server. Will retry automatically...", DateTime.Now, Color.Red);
+                    AppendMessage("System", $"Failed to connect to server at {serverIP}:{serverPort}. Will retry automatically...", DateTime.Now, Color.Red);
                 }
                 else
                 {
-                    AppendMessage("System", "Connected to server successfully!", DateTime.Now, Color.Green);
+                    AppendMessage("System", $"Connected to server at {serverIP}:{serverPort} successfully!", DateTime.Now, Color.Green);
                 }
             }
             catch (Exception ex)
@@ -536,6 +553,35 @@ namespace tcp_group_chat
                         btnSend.Enabled = true;
                     }
                 }
+            }
+        }
+
+        private async void BtnDisconnect_Click(object sender, EventArgs e)
+        {
+            try
+            {
+                if (networkClient != null && networkClient.IsConnected)
+                {
+                    await networkClient.DisconnectAsync();
+                    AppendMessage("System", "Disconnected from server.", DateTime.Now, Color.Orange);
+                    
+                    // Clear group members and update UI
+                    groupMembers.Clear();
+                    UpdateGroupMembersListAsync();
+                    
+                    // Disable chat controls
+                    txtMessage.Enabled = false;
+                    btnSend.Enabled = false;
+                    lblContactStatus.Text = "Disconnected";
+                }
+                else
+                {
+                    AppendMessage("System", "Already disconnected.", DateTime.Now, Color.Gray);
+                }
+            }
+            catch (Exception ex)
+            {
+                AppendMessage("System", $"Error during disconnect: {ex.Message}", DateTime.Now, Color.Red);
             }
         }
 
