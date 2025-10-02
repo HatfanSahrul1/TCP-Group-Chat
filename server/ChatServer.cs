@@ -146,7 +146,7 @@ namespace ChatServer
         private async Task HandleClient(TcpClient client, CancellationToken cancellationToken)
         {
             ClientInfo clientInfo = null;
-            string clientId = Guid.NewGuid().ToString()[.8];
+            string clientId = Guid.NewGuid().ToString()[..8];
 
             try
             {
@@ -185,12 +185,16 @@ namespace ChatServer
 
                 string username = joinMessage.From;
 
-                // Check if username already exists
+                // Check if username already exists and generate unique name
                 lock (_lock)
                 {
-                    if (_clients.Exists(c => c.Username == username))
+                    string originalUsername = username;
+                    int suffix = 1;
+                    
+                    while (_clients.Exists(c => c.Username == username))
                     {
-                        username = $"{username}_{clientId}";
+                        suffix++;
+                        username = $"{originalUsername}_{suffix:D2}";
                     }
 
                     clientInfo = new ClientInfo
@@ -201,6 +205,20 @@ namespace ChatServer
                         ClientId = clientId
                     };
                     _clients.Add(clientInfo);
+                }
+
+                // Send username confirmation to the client if it was changed
+                if (username != joinMessage.From)
+                {
+                    var usernameConfirmation = new ChatMessage
+                    {
+                        Type = "username_confirmed",
+                        From = "Server",
+                        To = username,
+                        Text = username,
+                        Ts = GetTimestamp()
+                    };
+                    await SendMessage(usernameConfirmation, clientInfo.Stream);
                 }
 
                 // Notify all clients about new user

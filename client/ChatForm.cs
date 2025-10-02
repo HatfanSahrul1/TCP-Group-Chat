@@ -596,6 +596,17 @@ namespace tcp_group_chat
                     UpdateGroupMembersListAsync();
                     break;
                 
+                case "username_confirmed":
+                    // Server confirmed our username (might have been changed for uniqueness)
+                    string confirmedUsername = message.Text;
+                    if (confirmedUsername != this.username)
+                    {
+                        this.username = confirmedUsername;
+                        this.Text = $"WhatsApp95 - {confirmedUsername}";
+                        AppendMessage("Server", $"Your username has been changed to: {confirmedUsername}", messageTime, Color.Orange);
+                    }
+                    break;
+                
                 case "sys":
                     AppendMessage("Server", message.Text, messageTime, Color.Red);
                     break;

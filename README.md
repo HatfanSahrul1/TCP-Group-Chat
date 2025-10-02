@@ -6,7 +6,8 @@ Aplikasi chat group TCP multi-client dengan antarmuka Windows Forms bergaya retr
 **All Target Minggu 2 requirements telah diimplementasi!**
 
 ## 🚀 Week 2 Features - COMPLETED ✅
-- ✅ **Username Unik**: Server auto-handle duplicate usernames
+- ✅ **Username Unik**: Server auto-handle duplicate dengan format readable (_02, _03, dll)
+- ✅ **Username Synchronization**: Client window title otomatis update dengan username yang benar
 - ✅ **Online Users ListView**: Interactive user list dengan context menu
 - ✅ **Private Messaging**: `/w command`, double-click, right-click
 - ✅ **Join/Leave Notifications**: Color-coded system messages
