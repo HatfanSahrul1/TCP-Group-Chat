@@ -3,6 +3,8 @@ using System.Drawing;
 using System.Windows.Forms;
 using System.Collections.Generic;
 using System.Linq;
+using System.IO;
+using System.Threading.Tasks;
 
 namespace tcp_group_chat
 {
@@ -23,6 +25,10 @@ namespace tcp_group_chat
         private TextBox txtSearch;
         private Button btnNewChat;
         private Button btnDisconnect;
+        private Button btnThemeToggle;
+        
+        // Theme variables
+        private bool isDarkMode = false;
         
         // Controls untuk chat area (tengah)
         private Panel panelChat;
@@ -45,6 +51,10 @@ namespace tcp_group_chat
             this.serverIP = serverIP;
             this.serverPort = serverPort;
             InitializeComponent();
+            
+            // Load and apply theme preference
+            LoadThemePreference();
+            ApplyTheme();
             
             // Initialize network client
             networkClient = new NetworkClient();
@@ -139,10 +149,22 @@ namespace tcp_group_chat
             btnDisconnect.FlatStyle = FlatStyle.Standard;
             btnDisconnect.Click += BtnDisconnect_Click;
 
+            // Theme toggle button
+            btnThemeToggle = new Button();
+            btnThemeToggle.Location = new Point(10, 555);
+            btnThemeToggle.Size = new Size(100, 25);
+            btnThemeToggle.Text = "🌙 Dark Mode";
+            btnThemeToggle.Font = new Font("MS Sans Serif", 8);
+            btnThemeToggle.BackColor = Color.FromArgb(192, 192, 192);
+            btnThemeToggle.ForeColor = Color.Black;
+            btnThemeToggle.FlatStyle = FlatStyle.Standard;
+            btnThemeToggle.Click += BtnThemeToggle_Click;
+
             panelContacts.Controls.Add(lblContacts);
             panelContacts.Controls.Add(txtSearch);
             panelContacts.Controls.Add(listOnlineUsers);
             panelContacts.Controls.Add(btnNewChat);
+            panelContacts.Controls.Add(btnThemeToggle);
             panelContacts.Controls.Add(btnDisconnect);
 
             // ===== INFO PANEL (Kanan) =====
@@ -903,6 +925,172 @@ namespace tcp_group_chat
             
             base.OnFormClosing(e);
             Application.Exit();
+        }
+
+        // Theme Methods
+        private struct ThemeColors
+        {
+            // Light Mode Colors (Windows 95 style)
+            public static readonly Color LightBackground = Color.FromArgb(192, 192, 192);
+            public static readonly Color LightForeground = Color.Black;
+            public static readonly Color LightPanelBackground = Color.FromArgb(212, 208, 200);
+            public static readonly Color LightTextBoxBackground = Color.White;
+            public static readonly Color LightButtonBackground = Color.FromArgb(192, 192, 192);
+            
+            // Dark Mode Colors
+            public static readonly Color DarkBackground = Color.FromArgb(43, 43, 43);
+            public static readonly Color DarkForeground = Color.White;
+            public static readonly Color DarkPanelBackground = Color.FromArgb(35, 35, 35);
+            public static readonly Color DarkTextBoxBackground = Color.FromArgb(60, 60, 60);
+            public static readonly Color DarkButtonBackground = Color.FromArgb(70, 70, 70);
+        }
+
+        private void ApplyTheme()
+        {
+            if (isDarkMode)
+            {
+                // Apply Dark Theme
+                this.BackColor = ThemeColors.DarkBackground;
+                this.ForeColor = ThemeColors.DarkForeground;
+                
+                // Panels
+                panelContacts.BackColor = ThemeColors.DarkPanelBackground;
+                panelContacts.ForeColor = ThemeColors.DarkForeground;
+                panelChat.BackColor = ThemeColors.DarkPanelBackground;
+                panelChat.ForeColor = ThemeColors.DarkForeground;
+                panelInfo.BackColor = ThemeColors.DarkPanelBackground;
+                panelInfo.ForeColor = ThemeColors.DarkForeground;
+                panelChatHeader.BackColor = ThemeColors.DarkPanelBackground;
+                panelMessageInput.BackColor = ThemeColors.DarkPanelBackground;
+                
+                // Labels
+                lblContacts.ForeColor = ThemeColors.DarkForeground;
+                lblContactName.ForeColor = ThemeColors.DarkForeground;
+                lblContactStatus.ForeColor = Color.LightGray;
+                lblInfoTitle.ForeColor = ThemeColors.DarkForeground;
+                
+                // TextBoxes and RichTextBox
+                txtSearch.BackColor = ThemeColors.DarkTextBoxBackground;
+                txtSearch.ForeColor = ThemeColors.DarkForeground;
+                txtMessage.BackColor = ThemeColors.DarkTextBoxBackground;
+                txtMessage.ForeColor = ThemeColors.DarkForeground;
+                rtbMessages.BackColor = ThemeColors.DarkTextBoxBackground;
+                rtbMessages.ForeColor = ThemeColors.DarkForeground;
+                
+                // Buttons
+                btnNewChat.BackColor = ThemeColors.DarkButtonBackground;
+                btnNewChat.ForeColor = ThemeColors.DarkForeground;
+                btnDisconnect.BackColor = ThemeColors.DarkButtonBackground;
+                btnDisconnect.ForeColor = ThemeColors.DarkForeground;
+                btnSend.BackColor = ThemeColors.DarkButtonBackground;
+                btnSend.ForeColor = ThemeColors.DarkForeground;
+                btnThemeToggle.BackColor = ThemeColors.DarkButtonBackground;
+                btnThemeToggle.ForeColor = ThemeColors.DarkForeground;
+                btnThemeToggle.Text = "☀️ Light Mode";
+                
+                // ListView
+                listOnlineUsers.BackColor = ThemeColors.DarkTextBoxBackground;
+                listOnlineUsers.ForeColor = ThemeColors.DarkForeground;
+                
+                // ListBox
+                listGroupMembers.BackColor = ThemeColors.DarkTextBoxBackground;
+                listGroupMembers.ForeColor = ThemeColors.DarkForeground;
+            }
+            else
+            {
+                // Apply Light Theme (Windows 95 style)
+                this.BackColor = ThemeColors.LightBackground;
+                this.ForeColor = ThemeColors.LightForeground;
+                
+                // Panels
+                panelContacts.BackColor = ThemeColors.LightPanelBackground;
+                panelContacts.ForeColor = ThemeColors.LightForeground;
+                panelChat.BackColor = ThemeColors.LightPanelBackground;
+                panelChat.ForeColor = ThemeColors.LightForeground;
+                panelInfo.BackColor = ThemeColors.LightPanelBackground;
+                panelInfo.ForeColor = ThemeColors.LightForeground;
+                panelChatHeader.BackColor = ThemeColors.LightPanelBackground;
+                panelMessageInput.BackColor = ThemeColors.LightPanelBackground;
+                
+                // Labels
+                lblContacts.ForeColor = ThemeColors.LightForeground;
+                lblContactName.ForeColor = ThemeColors.LightForeground;
+                lblContactStatus.ForeColor = Color.Gray;
+                lblInfoTitle.ForeColor = ThemeColors.LightForeground;
+                
+                // TextBoxes and RichTextBox
+                txtSearch.BackColor = ThemeColors.LightTextBoxBackground;
+                txtSearch.ForeColor = ThemeColors.LightForeground;
+                txtMessage.BackColor = ThemeColors.LightTextBoxBackground;
+                txtMessage.ForeColor = ThemeColors.LightForeground;
+                rtbMessages.BackColor = ThemeColors.LightTextBoxBackground;
+                rtbMessages.ForeColor = ThemeColors.LightForeground;
+                
+                // Buttons
+                btnNewChat.BackColor = ThemeColors.LightButtonBackground;
+                btnNewChat.ForeColor = ThemeColors.LightForeground;
+                btnDisconnect.BackColor = ThemeColors.LightButtonBackground;
+                btnDisconnect.ForeColor = ThemeColors.LightForeground;
+                btnSend.BackColor = ThemeColors.LightButtonBackground;
+                btnSend.ForeColor = ThemeColors.LightForeground;
+                btnThemeToggle.BackColor = ThemeColors.LightButtonBackground;
+                btnThemeToggle.ForeColor = ThemeColors.LightForeground;
+                btnThemeToggle.Text = "🌙 Dark Mode";
+                
+                // ListView
+                listOnlineUsers.BackColor = ThemeColors.LightTextBoxBackground;
+                listOnlineUsers.ForeColor = ThemeColors.LightForeground;
+                
+                // ListBox
+                listGroupMembers.BackColor = ThemeColors.LightTextBoxBackground;
+                listGroupMembers.ForeColor = ThemeColors.LightForeground;
+            }
+        }
+
+        private void BtnThemeToggle_Click(object sender, EventArgs e)
+        {
+            isDarkMode = !isDarkMode;
+            ApplyTheme();
+            SaveThemePreference();
+        }
+
+        private void LoadThemePreference()
+        {
+            try
+            {
+                string appDataPath = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+                string configPath = Path.Combine(appDataPath, "WhatsApp95Chat", "theme.txt");
+                
+                if (File.Exists(configPath))
+                {
+                    string themeData = File.ReadAllText(configPath);
+                    isDarkMode = themeData.Trim().ToLower() == "dark";
+                }
+            }
+            catch (Exception ex)
+            {
+                // If error loading theme preference, use default (light mode)
+                Console.WriteLine($"Error loading theme preference: {ex.Message}");
+                isDarkMode = false;
+            }
+        }
+
+        private void SaveThemePreference()
+        {
+            try
+            {
+                string appDataPath = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+                string configDir = Path.Combine(appDataPath, "WhatsApp95Chat");
+                string configPath = Path.Combine(configDir, "theme.txt");
+                
+                Directory.CreateDirectory(configDir);
+                File.WriteAllText(configPath, isDarkMode ? "dark" : "light");
+            }
+            catch (Exception ex)
+            {
+                // Silent fail - theme preference not critical
+                Console.WriteLine($"Error saving theme preference: {ex.Message}");
+            }
         }
 
         // Add IDisposable pattern

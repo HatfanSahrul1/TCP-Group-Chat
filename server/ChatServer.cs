@@ -146,7 +146,7 @@ namespace ChatServer
         private async Task HandleClient(TcpClient client, CancellationToken cancellationToken)
         {
             ClientInfo clientInfo = null;
-            string clientId = Guid.NewGuid().ToString()[..8];
+            string clientId = Guid.NewGuid().ToString()[.8];
 
             try
             {

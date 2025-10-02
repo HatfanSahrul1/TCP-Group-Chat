@@ -10,6 +10,7 @@ Aplikasi chat group TCP multi-client dengan antarmuka Windows Forms bergaya retr
 - ✅ **Online Users ListView**: Interactive user list dengan context menu
 - ✅ **Private Messaging**: `/w command`, double-click, right-click
 - ✅ **Join/Leave Notifications**: Color-coded system messages
+- ✅ **Dark/Light Mode Toggle**: Professional theme switching dengan persistence
 - ✅ **Error Handling**: Reconnect dialogs, graceful degradation
 - ✅ **Graceful Shutdown**: Proper resource disposal
 - ✅ **Server Logging**: Comprehensive file-based logging system
