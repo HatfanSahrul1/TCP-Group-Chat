@@ -35,8 +35,21 @@ namespace ChatServer
         private bool _isRunning = false;
         private CancellationTokenSource _cancellationTokenSource = new CancellationTokenSource();
         private readonly SemaphoreSlim _connectionSemaphore = new SemaphoreSlim(100, 100); // Max 100 concurrent clients
+        private readonly string _logFilePath;
 
         public event EventHandler<string> ServerMessage;
+
+        public ChatServer()
+        {
+            // Initialize logging
+            string logDir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "logs");
+            if (!Directory.Exists(logDir))
+            {
+                Directory.CreateDirectory(logDir);
+            }
+            _logFilePath = Path.Combine(logDir, $"chat_server_{DateTime.Now:yyyyMMdd_HHmmss}.log");
+            LogToFile("=== WhatsApp95 Chat Server Started ===");
+        }
 
         public async Task StartAsync(int port = 8888)
         {
@@ -86,7 +99,7 @@ namespace ChatServer
                         }
                         else
                         {
-                            OnServerMessage("Connection limit reached, rejecting client");
+                            LogWarning($"Connection limit reached, rejecting client from {client.Client.RemoteEndPoint}");
                             client.Close();
                         }
                     }
@@ -97,13 +110,13 @@ namespace ChatServer
                     }
                     catch (Exception ex)
                     {
-                        OnServerMessage($"Error accepting client: {ex.Message}");
+                        LogError("Error accepting client", ex);
                     }
                 }
             }
             catch (Exception ex)
             {
-                OnServerMessage($"Failed to start server: {ex.Message}");
+                LogError("Failed to start server", ex);
             }
         }
 
@@ -200,7 +213,7 @@ namespace ChatServer
                 };
                 await BroadcastMessage(joinNotification);
 
-                OnServerMessage($"[{DateTime.Now}] {username} connected from {client.Client.RemoteEndPoint}");
+                LogInfo($"User '{username}' connected from {client.Client.RemoteEndPoint}");
 
                 // Send connection success message to the new client
                 await SendMessage(new ChatMessage
@@ -229,7 +242,7 @@ namespace ChatServer
             }
             catch (Exception ex)
             {
-                OnServerMessage($"Unexpected error with client {clientId}: {ex.Message}");
+                LogError($"Unexpected error with client {clientId}", ex);
             }
             finally
             {
@@ -253,14 +266,14 @@ namespace ChatServer
                     message.From = clientInfo.Username;
                     message.Ts = GetTimestamp();
                     await BroadcastMessage(message);
-                    OnServerMessage($"[{DateTime.Now}] {clientInfo.Username}: {message.Text}");
+                    LogInfo($"Group message from {clientInfo.Username}: {message.Text}");
                     break;
 
                 case "pm": // Private message
                     message.From = clientInfo.Username;
                     message.Ts = GetTimestamp();
                     await SendPrivateMessage(message);
-                    OnServerMessage($"[{DateTime.Now}] {clientInfo.Username} -> {message.To}: {message.Text}");
+                    LogInfo($"Private message: {clientInfo.Username} -> {message.To}: {message.Text}");
                     break;
 
                 case "leave": // Client leaving
@@ -382,7 +395,7 @@ namespace ChatServer
             }
             catch (Exception ex)
             {
-                OnServerMessage($"Error sending message: {ex.Message}");
+                LogError("Failed to send message to client", ex);
             }
         }
 
@@ -405,7 +418,7 @@ namespace ChatServer
                 int messageLength = BitConverter.ToInt32(lengthBytes, 0);
                 if (messageLength <= 0 || messageLength > 65536) // Sanity check
                 {
-                    OnServerMessage("Invalid message length received");
+                    LogWarning($"Invalid message length received: {messageLength}");
                     return null;
                 }
 
@@ -435,7 +448,7 @@ namespace ChatServer
             }
             catch (Exception ex)
             {
-                OnServerMessage($"Unexpected error receiving message: {ex.Message}");
+                LogError("Unexpected error receiving message", ex);
                 return null;
             }
         }
@@ -456,7 +469,7 @@ namespace ChatServer
             };
             await BroadcastMessage(leaveMessage);
 
-            OnServerMessage($"[{DateTime.Now}] {clientInfo.Username} disconnected");
+            LogInfo($"User '{clientInfo.Username}' disconnected");
         }
 
         private async Task HandleServerCommands(CancellationToken cancellationToken)
@@ -471,16 +484,16 @@ namespace ChatServer
                     {
                         lock (_lock)
                         {
-                            OnServerMessage($"Connected clients ({_clients.Count}):");
+                            LogInfo($"Connected clients ({_clients.Count}):");
                             foreach (var client in _clients)
                             {
-                                OnServerMessage($"- {client.Username} ({client.ClientId})");
+                                OnServerMessage($"  - {client.Username} ({client.ClientId}) from {client.Client.Client.RemoteEndPoint}");
                             }
                         }
                     }
                     else if (command == "/stop")
                     {
-                        OnServerMessage("Shutting down server...");
+                        LogInfo("Server shutdown requested by administrator");
                         Stop();
                         Environment.Exit(0);
                     }
@@ -502,7 +515,7 @@ namespace ChatServer
                 }
                 catch (Exception ex)
                 {
-                    OnServerMessage($"Error in command handler: {ex.Message}");
+                    LogError("Error in command handler", ex);
                 }
                 
                 try
@@ -547,7 +560,39 @@ namespace ChatServer
         private void OnServerMessage(string message)
         {
             Console.WriteLine(message);
+            LogToFile(message);
             ServerMessage?.Invoke(this, message);
+        }
+
+        private void LogToFile(string message)
+        {
+            try
+            {
+                string timestamp = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
+                string logEntry = $"[{timestamp}] {message}";
+                File.AppendAllText(_logFilePath, logEntry + Environment.NewLine);
+            }
+            catch (Exception ex)
+            {
+                // Don't let logging errors break the server
+                Console.WriteLine($"Logging error: {ex.Message}");
+            }
+        }
+
+        private void LogError(string message, Exception ex = null)
+        {
+            string errorMessage = ex != null ? $"ERROR: {message} - {ex.Message}" : $"ERROR: {message}";
+            OnServerMessage(errorMessage);
+        }
+
+        private void LogInfo(string message)
+        {
+            OnServerMessage($"INFO: {message}");
+        }
+
+        private void LogWarning(string message)
+        {
+            OnServerMessage($"WARNING: {message}");
         }
 
         public void Dispose()

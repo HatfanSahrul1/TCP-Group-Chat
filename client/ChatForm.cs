@@ -13,11 +13,13 @@ namespace tcp_group_chat
         private int serverPort;
         private NetworkClient networkClient;
         private List<string> groupMembers = new List<string>();
+        private string currentChatTarget = "Group Chat"; // "Group Chat" or username for private chat
+        private Dictionary<string, List<string>> privateChatHistory = new Dictionary<string, List<string>>();
         
         // Controls untuk contacts panel (kiri)
         private Panel panelContacts;
         private Label lblContacts;
-        private ListBox listContacts;
+        private ListView listOnlineUsers;
         private TextBox txtSearch;
         private Button btnNewChat;
         private Button btnDisconnect;
@@ -50,8 +52,9 @@ namespace tcp_group_chat
             networkClient.ConnectionStateChanged += OnConnectionStateChanged;
             networkClient.ErrorOccurred += OnErrorOccurred;
             
-            // Auto-select group chat after networkClient is initialized
-            listContacts.SelectedIndex = 0;
+            // Default to group chat
+            lblContactName.Text = "Group Chat";
+            lblContactStatus.Text = "Connecting to server...";
             
             // Connect to server
             _ = Task.Run(async () => await ConnectToServer());
@@ -75,7 +78,7 @@ namespace tcp_group_chat
 
             // Header Contacts
             lblContacts = new Label();
-            lblContacts.Text = "WhatsApp95";
+            lblContacts.Text = "Online Users";
             lblContacts.Font = new Font("MS Sans Serif", 8, FontStyle.Bold);
             lblContacts.Location = new Point(10, 10);
             lblContacts.Size = new Size(200, 20);
@@ -94,27 +97,36 @@ namespace tcp_group_chat
             txtSearch.Enter += TxtSearch_Enter;
             txtSearch.Leave += TxtSearch_Leave;
 
-            // Contacts list - Show only Group Chat
-            listContacts = new ListBox();
-            listContacts.Location = new Point(10, 65);
-            listContacts.Size = new Size(200, 450);
-            listContacts.Font = new Font("MS Sans Serif", 8);
-            listContacts.BackColor = Color.White;
-            listContacts.BorderStyle = BorderStyle.Fixed3D;
-            listContacts.SelectedIndexChanged += ListContacts_SelectedIndexChanged;
-            listContacts.Items.Add("👨‍💻 Group Chat");
-            // Auto-select will be done after networkClient is initialized
+            // Online Users ListView
+            listOnlineUsers = new ListView();
+            listOnlineUsers.Location = new Point(10, 65);
+            listOnlineUsers.Size = new Size(200, 450);
+            listOnlineUsers.Font = new Font("MS Sans Serif", 8);
+            listOnlineUsers.BackColor = Color.White;
+            listOnlineUsers.BorderStyle = BorderStyle.Fixed3D;
+            listOnlineUsers.View = View.List;
+            listOnlineUsers.FullRowSelect = true;
+            listOnlineUsers.HideSelection = false;
+            listOnlineUsers.SelectedIndexChanged += ListOnlineUsers_SelectedIndexChanged;
+            listOnlineUsers.MouseDoubleClick += ListOnlineUsers_MouseDoubleClick;
+            
+            // Context menu for private chat
+            var contextMenu = new ContextMenuStrip();
+            var privateChateMenuItem = new ToolStripMenuItem("Private Chat");
+            privateChateMenuItem.Click += PrivateChatMenuItem_Click;
+            contextMenu.Items.Add(privateChateMenuItem);
+            listOnlineUsers.ContextMenuStrip = contextMenu;
 
-            // New Chat button (disabled for group chat only)
+            // Group Chat button
             btnNewChat = new Button();
             btnNewChat.Location = new Point(10, 525);
             btnNewChat.Size = new Size(95, 25);
-            btnNewChat.Text = "Group Chat Only";
+            btnNewChat.Text = "Group Chat";
             btnNewChat.Font = new Font("MS Sans Serif", 8);
             btnNewChat.BackColor = Color.FromArgb(192, 192, 192);
             btnNewChat.ForeColor = Color.Black;
             btnNewChat.FlatStyle = FlatStyle.Standard;
-            btnNewChat.Enabled = false;
+            btnNewChat.Click += BtnGroupChat_Click;
 
             // Disconnect button
             btnDisconnect = new Button();
@@ -129,7 +141,7 @@ namespace tcp_group_chat
 
             panelContacts.Controls.Add(lblContacts);
             panelContacts.Controls.Add(txtSearch);
-            panelContacts.Controls.Add(listContacts);
+            panelContacts.Controls.Add(listOnlineUsers);
             panelContacts.Controls.Add(btnNewChat);
             panelContacts.Controls.Add(btnDisconnect);
 
@@ -246,21 +258,148 @@ namespace tcp_group_chat
             PanelMessageInput_Resize(panelMessageInput, EventArgs.Empty);
         }
 
-        private void ListContacts_SelectedIndexChanged(object sender, EventArgs e)
+        private void ListOnlineUsers_SelectedIndexChanged(object sender, EventArgs e)
         {
-            if (listContacts.SelectedItem != null && networkClient != null && networkClient.IsConnected)
+            // This is handled by double-click or context menu
+        }
+
+        private void ListOnlineUsers_MouseDoubleClick(object sender, MouseEventArgs e)
+        {
+            if (listOnlineUsers.SelectedItems.Count > 0)
             {
-                // Enable chat controls when connected
-                txtMessage.Enabled = true;
-                btnSend.Enabled = true;
-                rtbMessages.Enabled = true;
-                
-                lblContactName.Text = "Group Chat";
-                lblContactStatus.Text = $"{groupMembers.Count} members online";
-                
-                // Update group members display
-                UpdateGroupMembersList();
+                string selectedUser = listOnlineUsers.SelectedItems[0].Text;
+                if (selectedUser != username) // Don't chat with yourself
+                {
+                    StartPrivateChat(selectedUser);
+                }
             }
+        }
+
+        private void PrivateChatMenuItem_Click(object sender, EventArgs e)
+        {
+            if (listOnlineUsers.SelectedItems.Count > 0)
+            {
+                string selectedUser = listOnlineUsers.SelectedItems[0].Text;
+                if (selectedUser != username) // Don't chat with yourself
+                {
+                    StartPrivateChat(selectedUser);
+                }
+            }
+        }
+
+        private void StartPrivateChat(string targetUser)
+        {
+            currentChatTarget = targetUser;
+            lblContactName.Text = $"Private Chat - {targetUser}";
+            lblContactStatus.Text = "online";
+            
+            // Enable chat controls
+            txtMessage.Enabled = true;
+            btnSend.Enabled = true;
+            rtbMessages.Enabled = true;
+            
+            // Load private chat history
+            LoadPrivateChatHistory(targetUser);
+        }
+
+        private async void DisconnectAndExit()
+        {
+            try
+            {
+                if (networkClient != null && networkClient.IsConnected)
+                {
+                    await networkClient.DisconnectAsync();
+                }
+            }
+            catch (Exception ex)
+            {
+                // Log error but continue with exit
+                Console.WriteLine($"Error during disconnect: {ex.Message}");
+            }
+            finally
+            {
+                Application.Exit();
+            }
+        }
+
+        private void BtnGroupChat_Click(object sender, EventArgs e)
+        {
+            SwitchToGroupChat();
+        }
+
+        private void ShowReconnectDialog()
+        {
+            var result = MessageBox.Show(
+                "Connection to server lost.\n\nWould you like to:\n" +
+                "• Yes: Try to reconnect\n" +
+                "• No: Close application\n" +
+                "• Cancel: Stay offline",
+                "Connection Lost",
+                MessageBoxButtons.YesNoCancel,
+                MessageBoxIcon.Warning);
+
+            switch (result)
+            {
+                case DialogResult.Yes:
+                    _ = Task.Run(async () =>
+                    {
+                        await Task.Delay(1000); // Brief delay
+                        BeginInvoke(new Action(async () =>
+                        {
+                            AppendMessage("System", "🔄 Attempting to reconnect...", DateTime.Now, Color.Orange);
+                            await ConnectToServer();
+                        }));
+                    });
+                    break;
+                
+                case DialogResult.No:
+                    DisconnectAndExit();
+                    break;
+                
+                case DialogResult.Cancel:
+                    AppendMessage("System", "📴 Staying offline. Click 'Group Chat' button when ready to reconnect.", DateTime.Now, Color.Gray);
+                    break;
+            }
+        }
+
+        private void LoadPrivateChatHistory(string targetUser)
+        {
+            rtbMessages.Clear();
+            
+            if (privateChatHistory.ContainsKey(targetUser))
+            {
+                foreach (string message in privateChatHistory[targetUser])
+                {
+                    rtbMessages.AppendText(message + "\n");
+                }
+            }
+            else
+            {
+                rtbMessages.AppendText($"=== Private Chat with {targetUser} ===\n");
+                rtbMessages.AppendText($"Start chatting with {targetUser}!\n");
+            }
+            
+            // Auto-scroll to bottom
+            rtbMessages.SelectionStart = rtbMessages.Text.Length;
+            rtbMessages.ScrollToCaret();
+        }
+
+        private void SwitchToGroupChat()
+        {
+            currentChatTarget = "Group Chat";
+            lblContactName.Text = "Group Chat";
+            lblContactStatus.Text = $"{groupMembers.Count} members online";
+            
+            // Enable chat controls
+            txtMessage.Enabled = true;
+            btnSend.Enabled = true;
+            rtbMessages.Enabled = true;
+            
+            // Load group chat messages (clear and show current session)
+            // Note: In a real app, you might want to preserve group chat history
+            rtbMessages.Clear();
+            rtbMessages.AppendText("=== Group Chat ===\n");
+            rtbMessages.AppendText("Welcome to the group chat!\n");
         }
 
         // Async version to prevent UI blocking
@@ -283,7 +422,8 @@ namespace tcp_group_chat
         {
             try
             {
-                listGroupMembers.BeginUpdate(); // Prevent flickering
+                // Update right panel (group members)
+                listGroupMembers.BeginUpdate();
                 listGroupMembers.Items.Clear();
                 listGroupMembers.Items.Add("👥 Group Chat Members");
                 listGroupMembers.Items.Add("");
@@ -300,10 +440,29 @@ namespace tcp_group_chat
                         listGroupMembers.Items.Add($"📱 {member}");
                     }
                 }
+                
+                // Update left panel (online users ListView)
+                listOnlineUsers.BeginUpdate();
+                listOnlineUsers.Items.Clear();
+                
+                foreach (string member in sortedMembers)
+                {
+                    var item = new ListViewItem(member);
+                    if (member == username)
+                    {
+                        item.ForeColor = Color.Blue; // Highlight yourself
+                        item.Font = new Font(item.Font, FontStyle.Bold);
+                    }
+                    listOnlineUsers.Items.Add(item);
+                }
+                
+                // Update status
+                lblContactStatus.Text = $"{groupMembers.Count} members online";
             }
             finally
             {
-                listGroupMembers.EndUpdate(); // Re-enable drawing
+                listGroupMembers.EndUpdate();
+                listOnlineUsers.EndUpdate();
             }
         }
 
@@ -365,13 +524,42 @@ namespace tcp_group_chat
                     break;
                 
                 case "pm":
+                    string privateMessageSender = message.From;
+                    string privateMessageTarget = message.To;
+                    
                     if (message.To == username)
                     {
-                        AppendMessage($"{message.From} (private)", message.Text, messageTime, Color.Blue);
+                        // Received private message
+                        // Store in private chat history
+                        if (!privateChatHistory.ContainsKey(privateMessageSender))
+                        {
+                            privateChatHistory[privateMessageSender] = new List<string>();
+                        }
+                        string formattedMessage = $"[{messageTime:HH:mm:ss}] {privateMessageSender}: {message.Text}";
+                        privateChatHistory[privateMessageSender].Add(formattedMessage);
+                        
+                        // Display only if currently in this private chat
+                        if (currentChatTarget == privateMessageSender)
+                        {
+                            AppendMessage(privateMessageSender, message.Text, messageTime, Color.Blue);
+                        }
+                        else
+                        {
+                            // Show notification in group chat that you have a private message
+                            if (currentChatTarget == "Group Chat")
+                            {
+                                AppendMessage("System", $"💬 Private message from {privateMessageSender} (double-click their name to view)", messageTime, Color.Purple);
+                            }
+                        }
                     }
                     else if (message.From == username)
                     {
-                        AppendMessage($"You to {message.To} (private)", message.Text, messageTime, Color.Blue);
+                        // This is your own private message (confirmation)
+                        // Don't add to history here as it's already added in SendMessage
+                        if (currentChatTarget == privateMessageTarget)
+                        {
+                            // Message already displayed by SendMessage method
+                        }
                     }
                     break;
                 
@@ -431,19 +619,15 @@ namespace tcp_group_chat
                 groupMembers.Clear();
                 UpdateGroupMembersListAsync();
                 
-                // Try to reconnect after a short delay
-                _ = Task.Run(async () =>
-                {
-                    await Task.Delay(3000); // Wait 3 seconds before reconnecting
-                    if (!networkClient?.IsConnected == true && !this.IsDisposed)
-                    {
-                        BeginInvoke(new Action(async () =>
-                        {
-                            AppendMessage("System", "Attempting to reconnect...", DateTime.Now, Color.Orange);
-                            await ConnectToServer();
-                        }));
-                    }
-                });
+                AppendMessage("System", "❌ Disconnected from server", DateTime.Now, Color.Red);
+                
+                // Show reconnection options
+                ShowReconnectDialog();
+            }
+            else if (state.Contains("Error") || state.Contains("Failed"))
+            {
+                AppendMessage("System", $"⚠️ Connection Error: {state}", DateTime.Now, Color.Red);
+                ShowReconnectDialog();
             }
         }
 
@@ -531,10 +715,26 @@ namespace tcp_group_chat
                             AppendMessage("System", "Usage: /w username message", DateTime.Now, Color.Red);
                         }
                     }
-                    else
+                    else if (currentChatTarget == "Group Chat")
                     {
                         // Send group message
                         await networkClient.SendGroupMessageAsync(message);
+                    }
+                    else
+                    {
+                        // Send private message to current chat target
+                        await networkClient.SendPrivateMessageAsync(currentChatTarget, message);
+                        
+                        // Add to private chat history
+                        if (!privateChatHistory.ContainsKey(currentChatTarget))
+                        {
+                            privateChatHistory[currentChatTarget] = new List<string>();
+                        }
+                        string formattedMessage = $"[{DateTime.Now:HH:mm:ss}] You: {message}";
+                        privateChatHistory[currentChatTarget].Add(formattedMessage);
+                        
+                        // Display in chat
+                        AppendMessage("You", message, DateTime.Now, Color.Black);
                     }
                 }
                 catch (Exception ex)
@@ -636,15 +836,12 @@ namespace tcp_group_chat
                 string contactName = txtInput.Text.Trim();
                 if (!string.IsNullOrWhiteSpace(contactName))
                 {
-                    if (!listContacts.Items.Contains($"📱 {contactName}"))
-                    {
-                        listContacts.Items.Add($"📱 {contactName}");
-                        MessageBox.Show($"Contact '{contactName}' added!");
-                    }
-                    else
-                    {
-                        MessageBox.Show("Contact already exists!");
-                    }
+                    // Note: Online users are managed by server, this is legacy code
+                    MessageBox.Show($"Note: Online users are automatically managed by the server.\nUsers online are displayed in the left panel.");
+                }
+                else
+                {
+                    MessageBox.Show("Please enter a valid username.");
                 }
             }
             

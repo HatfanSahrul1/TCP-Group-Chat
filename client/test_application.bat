@@ -21,7 +21,7 @@ timeout /t 3 > nul
 
 echo.
 echo Starting Client...
-cd /d "c:\Users\THINKPAD\dotnet_kuliah\tcp-group-chat"
+cd /d "c:\Users\THINKPAD\dotnet_kuliah\tcp-group-chat\client"
 dotnet run
 
 echo.

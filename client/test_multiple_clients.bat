@@ -21,7 +21,7 @@ echo.
 
 for /L %%i in (1,1,%CLIENT_COUNT%) do (
     echo Starting Client %%i...
-    start "ChatClient_%%i" cmd /k "cd /d c:\Users\THINKPAD\dotnet_kuliah\tcp-group-chat && dotnet run"
+    start "ChatClient_%%i" cmd /k "cd /d c:\Users\THINKPAD\dotnet_kuliah\tcp-group-chat\client && dotnet run"
     timeout /t 2 > nul
 )
 
