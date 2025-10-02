@@ -52,10 +52,6 @@ namespace tcp_group_chat
             this.serverPort = serverPort;
             InitializeComponent();
             
-            // Load and apply theme preference
-            LoadThemePreference();
-            ApplyTheme();
-            
             // Initialize network client
             networkClient = new NetworkClient();
             networkClient.MessageReceived += OnMessageReceived;
@@ -1051,7 +1047,6 @@ namespace tcp_group_chat
         {
             isDarkMode = !isDarkMode;
             ApplyTheme();
-            SaveThemePreference();
         }
 
         private void LoadThemePreference()
